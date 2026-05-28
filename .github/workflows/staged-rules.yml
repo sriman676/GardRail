@@ -29,7 +29,7 @@ jobs:
     if: success() && github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'auto-evolved')
     steps:
       - name: Auto-merge staged rules
-        uses: pascalgn/automerge-action@v0.16.2
+        uses: pascalgn/automerge-action@v0.16.4
         env:
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
           MERGE_LABELS: "auto-evolved"
