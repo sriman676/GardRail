@@ -244,8 +244,25 @@ Access at: **http://localhost:8000/ui/dashboard.html**
 | **Disk Space** | 50MB |
 | **Memory** | 256MB |
 
-### 📦 Install from Source
+---
 
+### 🍎 macOS/Linux Installation
+
+#### Quick Setup (Recommended)
+```bash
+# Clone repository
+git clone https://github.com/sriman676/GardRail.git
+cd GardRail
+
+# Automated one-time setup
+source scripts/setup_local.sh
+
+# Start development server
+source scripts/start_dev.sh
+# Server runs at http://localhost:8000/docs
+```
+
+#### Manual Setup
 ```bash
 # Clone repository
 git clone https://github.com/sriman676/GardRail.git
@@ -253,28 +270,176 @@ cd GardRail
 
 # Create virtual environment
 python3 -m venv venv
-source venv/bin/activate  # or: venv\Scripts\activate.bat (Windows)
+source venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
 
-# Verify installation
-pytest tests/ -v
+# Configure environment
+cp .env.template .env
+# Edit .env and add your OPENAI_API_KEY
+
+# Start server
+python -m uvicorn api.server:app --reload --port 8000
 ```
 
-### 🐳 Docker Support
-
+#### Using Make
 ```bash
-# Build image
+make install     # Setup venv + dependencies
+make run-dev     # Start development server (auto-reload)
+make test        # Run test suite
+```
+
+---
+
+### 🪟 Windows Installation
+
+#### Quick Setup (Recommended)
+```cmd
+REM Clone repository
+git clone https://github.com/sriman676/GardRail.git
+cd GardRail
+
+REM Automated one-time setup
+scripts\setup_local.bat
+
+REM Start development server
+scripts\start_dev.bat
+REM Server runs at http://localhost:8000/docs
+```
+
+#### Manual Setup (PowerShell)
+```powershell
+# Clone repository
+git clone https://github.com/sriman676/GardRail.git
+cd GardRail
+
+# Create virtual environment
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Configure environment
+Copy-Item .env.template .env
+# Edit .env and add your OPENAI_API_KEY
+
+# Start server
+python -m uvicorn api.server:app --reload --port 8000
+```
+
+#### Manual Setup (CMD)
+```cmd
+REM Clone repository
+git clone https://github.com/sriman676/GardRail.git
+cd GardRail
+
+REM Create virtual environment
+python -m venv venv
+venv\Scripts\activate.bat
+
+REM Install dependencies
+pip install -r requirements.txt
+
+REM Configure environment
+copy .env.template .env
+REM Edit .env and add your OPENAI_API_KEY
+
+REM Start server
+python -m uvicorn api.server:app --reload --port 8000
+```
+
+---
+
+### 🐳 Docker Installation
+
+#### Build & Run
+```bash
+# Clone repository
+git clone https://github.com/sriman676/GardRail.git
+cd GardRail
+
+# Build Docker image
 docker build -t guardrail .
 
 # Run container
 docker run -p 8000:8000 \
-  -e OPENAI_API_KEY=sk-... \
+  -e OPENAI_API_KEY=sk-your-key-here \
+  -e ADMIN_API_KEYS=your-admin-key \
   guardrail
 
-# Or with docker-compose
+# Access at http://localhost:8000/docs
+```
+
+#### Using docker-compose (Recommended)
+```bash
+# Clone repository
+git clone https://github.com/sriman676/GardRail.git
+cd GardRail
+
+# Create .env file
+cp .env.template .env
+# Edit .env and add your API keys
+
+# Start with docker-compose
 docker-compose up
+
+# Access at http://localhost:8000/docs
+```
+
+#### Production Deployment
+```bash
+# Scale multiple containers
+docker-compose up -d --scale guardrail=3
+
+# Check status
+docker-compose ps
+
+# View logs
+docker-compose logs -f guardrail
+
+# Stop all
+docker-compose down
+```
+
+---
+
+### 🚀 No Docker Installation (Local Development)
+
+For development without Docker, use the **macOS/Linux** or **Windows** sections above with automated setup:
+
+**Quick Start:**
+```bash
+# macOS/Linux
+source scripts/setup_local.sh && source scripts/start_dev.sh
+
+# Windows
+scripts\setup_local.bat && scripts\start_dev.bat
+
+# All platforms (Make)
+make install && make run-dev
+```
+
+The local setup:
+- ✅ Creates isolated Python virtual environment
+- ✅ Installs all dependencies
+- ✅ Configures environment variables
+- ✅ Starts server with auto-reload for development
+- ✅ Runs on `http://localhost:8000`
+
+**Verify Installation:**
+```bash
+# Check health
+curl http://localhost:8000/health
+
+# Open Swagger UI
+open http://localhost:8000/docs  # macOS
+# or: xdg-open http://localhost:8000/docs  # Linux
+# or: start http://localhost:8000/docs  # Windows
+
+# Run tests
+pytest tests/ -v
 ```
 
 ---
