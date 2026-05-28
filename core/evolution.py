@@ -183,9 +183,9 @@ class SystemOptimizer:
             return False
 
         try:
-            from github import Github
+            from github import Github, Auth
 
-            gh = Github(token)
+            gh = Github(auth=Auth.Token(token))
             repo = gh.get_repo(repo_name)
             base = repo.default_branch
 
