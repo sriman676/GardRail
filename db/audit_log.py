@@ -28,35 +28,45 @@ class AuditLog:
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS sessions (
-                    id TEXT PRIMARY KEY, raw_task TEXT NOT NULL, intent_json TEXT NOT NULL,
+                    id TEXT PRIMARY KEY, tenant_id TEXT DEFAULT 'default', raw_task TEXT NOT NULL, intent_json TEXT NOT NULL,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP, status TEXT DEFAULT 'active');
                 CREATE TABLE IF NOT EXISTS scans (
-                    id TEXT PRIMARY KEY, session_id TEXT NOT NULL, input_hash TEXT NOT NULL,
+                    id TEXT PRIMARY KEY, session_id TEXT NOT NULL, tenant_id TEXT DEFAULT 'default', input_hash TEXT NOT NULL,
                     threat_level TEXT NOT NULL, scan_result_json TEXT, user_decision TEXT, rule_version TEXT,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (session_id) REFERENCES sessions(id));
                 CREATE TABLE IF NOT EXISTS drift_events (
-                    id TEXT PRIMARY KEY, session_id TEXT NOT NULL, agent_action TEXT NOT NULL,
+                    id TEXT PRIMARY KEY, session_id TEXT NOT NULL, tenant_id TEXT DEFAULT 'default', agent_action TEXT NOT NULL,
                     drift_score REAL NOT NULL, drift_type TEXT, explanation TEXT,
                     triggered INTEGER DEFAULT 0,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (session_id) REFERENCES sessions(id));
                 CREATE INDEX IF NOT EXISTS idx_scans_session ON scans(session_id);
                 CREATE INDEX IF NOT EXISTS idx_scans_threat ON scans(threat_level);
+                CREATE INDEX IF NOT EXISTS idx_scans_tenant ON scans(tenant_id);
                 CREATE INDEX IF NOT EXISTS idx_scans_created ON scans(created_at);
                 CREATE INDEX IF NOT EXISTS idx_drift_session ON drift_events(session_id);
                 CREATE INDEX IF NOT EXISTS idx_drift_triggered ON drift_events(triggered);
                 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+                CREATE INDEX IF NOT EXISTS idx_sessions_tenant ON sessions(tenant_id);
                 """
             )
 
-    def log_session(self, intent) -> None:
+    def log_session(self, intent, tenant_id: str = "default") -> None:
+        """
+        Record a new session with extracted intent information.
+        
+        Args:
+            intent: IntentFingerprint object with task_id and raw_task
+            tenant_id: Tenant identifier for multi-tenancy (default: 'default')
+        """
         try:
             with self._connect() as conn:
                 conn.execute(
-                    "INSERT INTO sessions (id, raw_task, intent_json) VALUES (?,?,?)",
+                    "INSERT INTO sessions (id, tenant_id, raw_task, intent_json) VALUES (?,?,?,?)",
                     (
                         intent.task_id,
+                        tenant_id,
                         intent.raw_task,
                         json.dumps(dataclasses.asdict(intent), default=str),
                     ),
@@ -64,7 +74,7 @@ class AuditLog:
         except Exception as e:
             logger.error("log_session failed: %s", e)
 
-    def log_scan(self, scan: Any, session_id: str, input_hash: str) -> None:
+    def log_scan(self, scan: Any, session_id: str, input_hash: str, tenant_id: str = "default") -> None:
         try:
             with self._connect() as conn:
                 # Prepare values with explicit coercion to avoid None type issues
@@ -79,10 +89,11 @@ class AuditLog:
                 rule_version = getattr(scan, "rule_version", "") or ""
 
                 conn.execute(
-                    "INSERT INTO scans (id, session_id, input_hash, threat_level, scan_result_json, rule_version) VALUES (?,?,?,?,?,?)",
+                    "INSERT INTO scans (id, session_id, tenant_id, input_hash, threat_level, scan_result_json, rule_version) VALUES (?,?,?,?,?,?,?)",
                     (
                         scan_id,
                         session_id,
+                        tenant_id,
                         input_hash,
                         threat_level,
                         scan_json,
@@ -92,14 +103,15 @@ class AuditLog:
         except Exception as e:
             logger.error("log_scan failed: %s", e)
 
-    def log_drift(self, drift) -> None:
+    def log_drift(self, drift, tenant_id: str = "default") -> None:
         try:
             with self._connect() as conn:
                 conn.execute(
-                    "INSERT INTO drift_events (id, session_id, agent_action, drift_score, drift_type, explanation, triggered) VALUES (?,?,?,?,?,?,?)",
+                    "INSERT INTO drift_events (id, session_id, tenant_id, agent_action, drift_score, drift_type, explanation, triggered) VALUES (?,?,?,?,?,?,?,?)",
                     (
                         drift.drift_id,
                         drift.task_id,
+                        tenant_id,
                         drift.agent_action,
                         drift.drift_score,
                         drift.drift_type.value,
@@ -120,25 +132,25 @@ class AuditLog:
         except Exception as e:
             logger.error("log_decision failed: %s", e)
 
-    def get_recent(self, limit: int = 50, threat_level: Optional[str] = None) -> list:
+    def get_recent(self, limit: int = 50, threat_level: Optional[str] = None, tenant_id: str = "default") -> list:
         try:
             with self._connect() as conn:
                 if threat_level:
                     rows = conn.execute(
-                        "SELECT * FROM scans WHERE threat_level=? ORDER BY created_at DESC LIMIT ?",
-                        (threat_level, limit),
+                        "SELECT * FROM scans WHERE threat_level=? AND tenant_id=? ORDER BY created_at DESC LIMIT ?",
+                        (threat_level, tenant_id, limit),
                     ).fetchall()
                 else:
                     rows = conn.execute(
-                        "SELECT * FROM scans ORDER BY created_at DESC LIMIT ?",
-                        (limit,),
+                        "SELECT * FROM scans WHERE tenant_id=? ORDER BY created_at DESC LIMIT ?",
+                        (tenant_id, limit),
                     ).fetchall()
                 return [dict(r) for r in rows]
         except Exception as e:
             logger.error("get_recent failed: %s", e)
             return []
 
-    def get_stats(self) -> dict:
+    def get_stats(self, tenant_id: str = "default") -> dict:
         try:
             with self._connect() as conn:
                 row = conn.execute(
@@ -151,7 +163,9 @@ class AuditLog:
                         SUM(CASE WHEN threat_level='SUSPICIOUS' THEN 1 ELSE 0 END) AS suspicious,
                         SUM(CASE WHEN threat_level='SAFE' THEN 1 ELSE 0 END) AS safe_scans
                     FROM scans
-                    """
+                    WHERE tenant_id=?
+                    """,
+                    (tenant_id,)
                 ).fetchone()
                 return {
                     "total_scans": row["total_scans"] or 0,
@@ -168,17 +182,13 @@ class AuditLog:
                 "safe_scans": 0,
             }
 
-    def reset(self) -> None:
+    def reset(self, tenant_id: str = "default") -> None:
         try:
             with self._connect() as conn:
-                conn.executescript(
-                    """
-                    DELETE FROM drift_events;
-                    DELETE FROM scans;
-                    DELETE FROM sessions;
-                    """
-                )
-            logger.info("Audit log reset - all data cleared.")
+                conn.execute("DELETE FROM drift_events WHERE tenant_id=?", (tenant_id,))
+                conn.execute("DELETE FROM scans WHERE tenant_id=?", (tenant_id,))
+                conn.execute("DELETE FROM sessions WHERE tenant_id=?", (tenant_id,))
+            logger.info("Audit log reset - cleared data for tenant: %s", tenant_id)
         except Exception as e:
             logger.error("reset failed: %s", e)
             raise

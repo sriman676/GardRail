@@ -5,10 +5,11 @@ import json
 import hashlib
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from pathlib import Path
 
 from core.llm_client import GenericLLMClient
+from core import metrics
 
 logger = logging.getLogger("guardrail.scanner")
 
@@ -38,6 +39,7 @@ class ScanResult:
     llm_explanation: str = ""
     original_task: str = ""
     rule_version: str = ""
+    explainability: Dict[str, Any] = field(default_factory=dict)
 
 
 # Backwards-compatibility: expose INJECTION_PATTERNS symbol for tests and callers.
@@ -77,6 +79,17 @@ class InjectionScanner:
         self._rules: List[tuple[str, str, str]] = []
         self.rule_version: str = "builtin-none"
         self._load_rules()
+        # Optional classifier plugin
+        try:
+            from config import settings
+            if getattr(settings, "ENABLE_ML_CLASSIFIER", False):
+                from core.classifier import BasicKeywordClassifier
+
+                self.classifier = BasicKeywordClassifier()
+            else:
+                self.classifier = None
+        except Exception:
+            self.classifier = None
 
     def _load_rules(self) -> None:
         try:
@@ -101,6 +114,11 @@ class InjectionScanner:
 
     def scan(self, content: str, use_llm: bool = True) -> ScanResult:
         content = content[:10000]
+        # instrumentation
+        try:
+            metrics.scans_total.inc()
+        except Exception:
+            pass
         scan_id = str(uuid.uuid4())
         matched = self._pattern_scan(content)
 
@@ -116,6 +134,7 @@ class InjectionScanner:
         threat_level = ThreatLevel.SUSPICIOUS
         llm_explanation = ""
         confidence = 0.6
+        explainability: Dict[str, Any] = {}
 
         if use_llm:
             flagged_text = " ".join([m.matched_text for m in matched])[:2000]
@@ -132,7 +151,21 @@ class InjectionScanner:
                 confidence = llm_result.get("confidence", 0.6)
                 llm_explanation = llm_result.get("explanation", "")
 
+            # Request explainability mapping from the LLM (non-blocking fallback)
+            try:
+                expl = self._llm_explain(flagged_text, matched)
+                if expl:
+                    explainability = expl
+            except Exception:
+                explainability = {}
+
         clean = self._sanitize(content, matched)
+        # metrics: label by level
+        try:
+            metrics.scans_by_level.labels(level=threat_level.value).inc()
+        except Exception:
+            pass
+
         logger.info("Scan complete. threat_level=%s patterns_found=%s", threat_level.value, len(matched))
 
         return ScanResult(
@@ -143,6 +176,7 @@ class InjectionScanner:
             confidence=confidence,
             llm_explanation=llm_explanation,
             rule_version=self.rule_version,
+            explainability=explainability,
         )
 
     def _pattern_scan(self, content: str) -> List[MatchedPattern]:
@@ -176,6 +210,30 @@ class InjectionScanner:
             return result
         except Exception as e:
             logger.warning("LLM scan failed: %s. Using pattern-only result.", e)
+            return None
+
+    def _llm_explain(self, text: str, matches: List[MatchedPattern]) -> Optional[Dict[str, Any]]:
+        """Ask the LLM to provide an explainability JSON mapping matched patterns to rationale."""
+        if not matches:
+            return {"rationale": "", "pattern_explanations": []}
+        try:
+            pattern_ids = [m.pattern_id for m in matches]
+            prompt = (
+                "You are an explainability assistant. Given the flagged text and the list of matched pattern IDs, "
+                "provide a JSON object with 'rationale' (one-sentence) and 'pattern_explanations' as a list of "
+                "{pattern_id, explanation} objects explaining why the pattern matches indicate injection.\n\n"
+                "Flagged Text:\n" + text + "\n\n"
+                "Pattern IDs:\n" + ",".join(pattern_ids)
+            )
+            result = self.client.generate(
+                prompt=prompt,
+                json_format=True,
+                temperature=0.0,
+                max_tokens=300,
+                fallback_default={"rationale": "", "pattern_explanations": []},
+            )
+            return result
+        except Exception:
             return None
 
     def _sanitize(self, content: str, matches: List[MatchedPattern]) -> str:

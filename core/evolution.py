@@ -7,6 +7,7 @@ from typing import Dict, Any, List
 from config import settings
 from db.audit_log import AuditLog
 from core.llm_client import GenericLLMClient
+from core import metrics
 
 logger = logging.getLogger("guardrail.evolution")
 
@@ -70,6 +71,10 @@ class SystemOptimizer:
         auto-tunes settings, and returns the optimization results.
         """
         logger.info("Starting System Optimization & Self-Evolution...")
+        try:
+            metrics.evolution_runs.inc()
+        except Exception:
+            pass
         
         # 1. Fetch audit logs
         sessions = self.audit.get_recent(limit=30)
@@ -144,6 +149,10 @@ class SystemOptimizer:
         new_rules = recommendations.get("new_regex_rules", [])
         if new_rules:
             rules_added = self._apply_new_rules(new_rules)
+            try:
+                metrics.evolved_rules_added.inc(rules_added)
+            except Exception:
+                pass
 
         logger.info(
             "Evolution complete. Threshold updated=%s, Evolved Rules Added=%s. Rationale: %s",
@@ -160,6 +169,56 @@ class SystemOptimizer:
             "rationale": recommendations.get("rationale", ""),
             "applied_rules": new_rules
         }
+
+    def _create_evolution_pr(self, updated_rules_json: str, added_count: int) -> bool:
+        """
+        Create a GitHub branch and PR containing the updated `config/injection_rules.json`.
+        Requires `GITHUB_TOKEN` and `GITHUB_REPOSITORY` env vars (owner/repo).
+        Returns True if PR created, False otherwise.
+        """
+        token = os.environ.get("GITHUB_TOKEN")
+        repo_name = os.environ.get("GITHUB_REPOSITORY")
+        if not token or not repo_name:
+            logger.info("Skipping PR automation: GITHUB_TOKEN or GITHUB_REPOSITORY not set.")
+            return False
+
+        try:
+            from github import Github
+
+            gh = Github(token)
+            repo = gh.get_repo(repo_name)
+            base = repo.default_branch
+
+            # Create branch
+            import time
+
+            branch_name = f"evolution/evolved-{int(time.time())}"
+            src = repo.get_git_ref(f"heads/{base}")
+            repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=src.object.sha)
+
+            # Prepare updated file content
+            path = "config/injection_rules.json"
+            try:
+                file_obj = repo.get_contents(path, ref=base)
+                sha = file_obj.sha
+            except Exception:
+                sha = None
+
+            commit_msg = f"chore(evolution): add {added_count} evolved rule(s)"
+            if sha:
+                repo.update_file(path, commit_msg, updated_rules_json, sha, branch=branch_name)
+            else:
+                repo.create_file(path, commit_msg, updated_rules_json, branch=branch_name)
+
+            # Open PR
+            title = f"Evolution: add {added_count} evolved rule(s)"
+            body = "Auto-generated evolution PR. Please review the added regex rules before merge."
+            repo.create_pull(title=title, body=body, head=branch_name, base=base)
+            logger.info("Evolution PR created: %s/%s", repo_name, branch_name)
+            return True
+        except Exception as e:
+            logger.warning("Could not create evolution PR: %s", e)
+            return False
 
     def _update_env_threshold(self, threshold: float) -> bool:
         """Helper to write the updated drift threshold back to the .env file."""
@@ -243,6 +302,12 @@ class SystemOptimizer:
                         del tmp
                 except Exception as e:
                     logger.warning("Could not refresh scanner module after adding rules: %s", e)
+
+                # Try creating a PR with the updated rules so humans can review
+                try:
+                    self._create_evolution_pr(json.dumps(existing, indent=2, sort_keys=False), added_count)
+                except Exception:
+                    pass
 
             return added_count
         except Exception as e:

@@ -76,10 +76,11 @@ def test_log_session_inserts_row(audit):
     intent = make_intent()
     audit.log_session(intent)
     conn = sqlite3.connect(audit.db_path)
+    conn.row_factory = sqlite3.Row
     row = conn.execute("SELECT * FROM sessions WHERE id=?", (intent.task_id,)).fetchone()
     conn.close()
     assert row is not None
-    assert row[1] == intent.raw_task
+    assert row["raw_task"] == intent.raw_task
 
 
 def test_log_session_does_not_raise_on_duplicate(audit):
@@ -94,10 +95,11 @@ def test_log_scan_inserts_row(audit):
     scan = make_scan()
     audit.log_scan(scan, intent.task_id, "abc123hash")
     conn = sqlite3.connect(audit.db_path)
+    conn.row_factory = sqlite3.Row
     row = conn.execute("SELECT * FROM scans WHERE id=?", (scan.scan_id,)).fetchone()
     conn.close()
     assert row is not None
-    assert row[3] == "SAFE"
+    assert row["threat_level"] == "SAFE"
 
 
 def test_log_scan_danger_stored_correctly(audit):
@@ -126,10 +128,11 @@ def test_log_drift_inserts_row(audit):
     drift = make_drift()
     audit.log_drift(drift)
     conn = sqlite3.connect(audit.db_path)
+    conn.row_factory = sqlite3.Row
     row = conn.execute("SELECT * FROM drift_events WHERE id=?", (drift.drift_id,)).fetchone()
     conn.close()
     assert row is not None
-    assert abs(row[3] - 0.05) < 0.001
+    assert abs(row["drift_score"] - 0.05) < 0.001
 
 
 def test_get_stats_empty_db(audit):

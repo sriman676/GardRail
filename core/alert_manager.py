@@ -4,6 +4,12 @@ import uuid
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
+import os
+import json
+
+import httpx
+
+from config import settings
 
 logger = logging.getLogger("guardrail.alert")
 
@@ -52,6 +58,41 @@ class AlertManager:
             explanation=explanation,
         )
 
+    def _notify_webhooks(self, alert: Alert) -> None:
+        urls = []
+        env_urls = os.environ.get("ALERT_WEBHOOKS") or settings.ALERT_WEBHOOKS
+        if env_urls:
+            urls = [u.strip() for u in env_urls.split(",") if u.strip()]
+        if not urls:
+            return
+
+        payload = {
+            "alert_id": alert.alert_id,
+            "type": alert.alert_type,
+            "threat_level": alert.threat_level,
+            "task": alert.original_task,
+            "malicious_content": alert.malicious_content,
+            "explanation": alert.explanation,
+        }
+
+        async def _post(u: str):
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    await client.post(u, json=payload)
+            except Exception as e:
+                logger.debug("Webhook notify failed for %s: %s", u, e)
+
+        # Fire-and-forget notifications
+        for u in urls:
+            try:
+                asyncio.create_task(_post(u))
+            except Exception:
+                # If loop not running, try synchronous send
+                try:
+                    httpx.post(u, json=payload, timeout=5.0)
+                except Exception:
+                    logger.debug("Synchronous webhook notify failed for %s", u)
+
     def build_drift_alert(self, drift, task: str) -> Alert:
         return Alert(
             alert_id=str(uuid.uuid4()),
@@ -69,6 +110,12 @@ class AlertManager:
         logger.warning(
             "DANGER alert triggered. Waiting for user decision. mode=%s", self.mode
         )
+
+        # Notify configured webhooks immediately
+        try:
+            self._notify_webhooks(alert)
+        except Exception as e:
+            logger.debug("Webhook notify raised: %s", e)
 
         if self.mode == "cli":
             return self._cli_decision(alert)

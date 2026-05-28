@@ -3,13 +3,15 @@ import logging
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends, Header
 from pydantic import BaseModel, Field
 
 from agent.guardrail_wrapper import guardrail
 from core.alert_manager import UserDecision, alert_manager
 from core.injection_scanner import InjectionScanner
 from db.audit_log import AuditLog
+from core.auth import require_admin_api_key
+from core.rule_manager import get_active_rules, get_staged_rules
 
 logger = logging.getLogger("guardrail.api")
 router = APIRouter()
@@ -52,8 +54,8 @@ class DecideRequest(BaseModel):
 
 
 @router.post("/run")
-async def run(req: RunRequest):
-    result = await guardrail.run(task=req.task, input_content=req.content)
+async def run(req: RunRequest, x_tenant_id: str = Header("default", alias="X-Tenant-Id")):
+    result = await guardrail.run(task=req.task, input_content=req.content, tenant_id=x_tenant_id)
     if result.get("status") == "ERROR":
         raise HTTPException(
             status_code=503,
@@ -81,6 +83,7 @@ async def scan_only(req: ScanRequest):
         "clean_content": result.clean_content,
         "confidence": result.confidence,
         "llm_explanation": result.llm_explanation,
+        "explainability": result.explainability,
     }
 
 
@@ -101,9 +104,9 @@ async def decide(req: DecideRequest):
 
 
 @router.get("/audit/log")
-async def get_audit_log(limit: int = 50, threat_level: str = None):
-    entries = audit.get_recent(limit=limit, threat_level=threat_level)
-    stats = audit.get_stats()
+async def get_audit_log(limit: int = 50, threat_level: str = None, x_tenant_id: str = Header("default", alias="X-Tenant-Id")):
+    entries = audit.get_recent(limit=limit, threat_level=threat_level, tenant_id=x_tenant_id)
+    stats = audit.get_stats(tenant_id=x_tenant_id)
     return {"entries": entries, "total": len(entries), "stats": stats}
 
 
@@ -134,18 +137,28 @@ async def health():
     return result
 
 
+@router.get("/rules")
+async def list_rules():
+    try:
+        active = get_active_rules()
+        staged = get_staged_rules()
+        return {"active": active, "staged": staged}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not load rules: {e}") from e
+
+
 
 @router.post("/audit/reset")
-async def audit_reset():
+async def audit_reset(admin: bool = Depends(require_admin_api_key), x_tenant_id: str = Header("default", alias="X-Tenant-Id")):
     try:
-        audit.reset()
+        audit.reset(tenant_id=x_tenant_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Reset failed: {e}") from e
-    return {"reset": True, "message": "All audit log data cleared."}
+    return {"reset": True, "message": f"Audit log data cleared for tenant: {x_tenant_id}"}
 
 
 @router.post("/evolve")
-async def trigger_evolution():
+async def trigger_evolution(admin: bool = Depends(require_admin_api_key)):
     from core.evolution import SystemOptimizer
     try:
         # Run evolution in a background thread to prevent blocking the async loop
@@ -213,3 +226,26 @@ async def demo_run():
         )
 
     return {"status": "completed", "scenarios": results}
+
+from fastapi.responses import PlainTextResponse
+import csv
+import io
+
+@router.get("/audit/export")
+async def export_audit_log(admin: bool = Depends(require_admin_api_key), x_tenant_id: str = Header("default", alias="X-Tenant-Id")):
+    """Export recent audit logs as CSV"""
+    entries = audit.get_recent(limit=1000, tenant_id=x_tenant_id)
+    if not entries:
+        return PlainTextResponse("No records found", status_code=204)
+        
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=entries[0].keys())
+    writer.writeheader()
+    for row in entries:
+        writer.writerow(row)
+        
+    return PlainTextResponse(
+        output.getvalue(), 
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=audit_export_{x_tenant_id}.csv"}
+    )

@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     GUARDRAIL_PORT: int = 8000
     DRIFT_THRESHOLD: float = 0.70
     LOG_LEVEL: str = "INFO"
+    # Alerting
+    ALERT_WEBHOOKS: str = ""  # comma-separated webhook URLs
+    # Optional ML classifier toggle
+    ENABLE_ML_CLASSIFIER: bool = False
 
     model_config = SettingsConfigDict(
         env_file=".env",

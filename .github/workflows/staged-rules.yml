@@ -1,0 +1,36 @@
+name: Staged Rule Tests
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [ main ]
+
+jobs:
+  staged-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run staged rule tests
+        run: |
+          pytest tests/test_staged_rules.py -q
+
+  auto-merge:
+    needs: staged-rules
+    runs-on: ubuntu-latest
+    if: success() && github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'auto-evolved')
+    steps:
+      - name: Auto-merge staged rules
+        uses: pascalgn/automerge-action@v0.16.2
+        env:
+          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+          MERGE_LABELS: "auto-evolved"
+          MERGE_METHOD: "squash"

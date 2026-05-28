@@ -11,6 +11,7 @@ from core.drift_detector import DriftDetector
 from core.injection_scanner import InjectionScanner, ThreatLevel
 from core.sandbox import SandboxSimulator
 from db.audit_log import AuditLog
+from core.anonymizer import ContentAnonymizer
 
 logger = logging.getLogger("guardrail.wrapper")
 
@@ -26,6 +27,7 @@ class GuardRail:
         decision_mode: str = "api",
         agent_callable: Optional[Callable[..., Any]] = None,
         action_extractor: Optional[Callable[..., str]] = None,
+        anonymize_pii: bool = True,
     ):
         self.fingerprinter = None  # Lazy-load to avoid early Pydantic init warnings
         self.scanner = InjectionScanner()
@@ -33,6 +35,7 @@ class GuardRail:
         self.sandbox = SandboxSimulator()
         self.agent = BaseAgent()
         self.audit = AuditLog()
+        self.anonymizer = ContentAnonymizer(active=anonymize_pii)
 
         self.agent_callable = agent_callable
         self.action_extractor = action_extractor
@@ -48,6 +51,7 @@ class GuardRail:
         input_content: str,
         agent_callable: Optional[Callable[..., Any]] = None,
         action_extractor: Optional[Callable[..., str]] = None,
+        tenant_id: str = "default",
     ) -> dict:
         """
         Runs the GuardRail pipeline:
@@ -59,8 +63,8 @@ class GuardRail:
             self.fingerprinter = IntentFingerprinter()
 
         intent = self.fingerprinter.fingerprint(task)
-        self.audit.log_session(intent)
-        logger.info("Session started. task_id=%s", intent.task_id)
+        self.audit.log_session(intent, tenant_id=tenant_id)
+        logger.info("Session started. task_id=%s, tenant_id=%s", intent.task_id, tenant_id)
 
         # 1. Run the Swarm Sandbox Simulation Shield on the un-sanitized content!
         simulation_report = self.sandbox.simulate(task, input_content)
@@ -78,7 +82,7 @@ class GuardRail:
             ).strip()
 
         input_hash = hashlib.sha256(input_content.encode()).hexdigest()
-        self.audit.log_scan(scan_result, intent.task_id, input_hash)
+        self.audit.log_scan(scan_result, intent.task_id, input_hash, tenant_id=tenant_id)
 
         user_decision = None
         alert_info = None
@@ -103,6 +107,8 @@ class GuardRail:
             content_for_agent = input_content
         else:
             content_for_agent = scan_result.clean_content
+            
+        content_for_agent = self.anonymizer.anonymize(content_for_agent)
 
         # Resolve active agent call: custom parameter -> constructor custom -> default BaseAgent
         fn = agent_callable or self.agent_callable
@@ -145,7 +151,7 @@ class GuardRail:
         drift_result = None
         if action_desc:
             drift_result = self.drift_detector.check(action_desc, intent)
-            self.audit.log_drift(drift_result)
+            self.audit.log_drift(drift_result, tenant_id=tenant_id)
 
             if drift_result.triggered:
                 drift_alert = self.alert_manager.build_drift_alert(drift_result, task)
