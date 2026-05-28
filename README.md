@@ -108,9 +108,9 @@ guard.drift_detector.client = custom_client
 ## Detailed Integration Guides
 
 Check out the fully functional copy-pasteable files in the `examples/` directory:
-- [examples/gemini_integration.py](file:///d:/OneDrive-SRM/OneDrive%20-%20SRM%20University,%20AP%20-%20Amaravathi/College/new%20stuff/guardrail-docs-v2/examples/gemini_integration.py) — Native Gemini wrap integration.
-- [examples/langchain_integration.py](file:///d:/OneDrive-SRM/OneDrive%20-%20SRM%20University,%20AP%20-%20Amaravathi/College/new%20stuff/guardrail-docs-v2/examples/langchain_integration.py) — Secured LangChain executor wrapping.
-- [examples/custom_callback_integration.py](file:///d:/OneDrive-SRM/OneDrive%20-%20SRM%20University,%20AP%20-%20Amaravathi/College/new%20stuff/guardrail-docs-v2/examples/custom_callback_integration.py) — Hot-plug custom company API routers.
+- [examples/gemini_integration.py](examples/gemini_integration.py) — Native Gemini wrap integration.
+- [examples/langchain_integration.py](examples/langchain_integration.py) — Secured LangChain executor wrapping.
+- [examples/custom_callback_integration.py](examples/custom_callback_integration.py) — Hot-plug custom company API routers.
 
 ---
 
