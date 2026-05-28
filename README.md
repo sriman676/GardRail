@@ -1,5 +1,13 @@
 # GuardRail — Pluggable Real-Time Prompt Injection Shield for AI Agents
 
+[![Tests](https://github.com/sriman676/GardRail/actions/workflows/ci.yml/badge.svg)](https://github.com/sriman676/GardRail/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/guardrail)](https://pypi.org/project/guardrail)
+
+GuardRail is a provider-agnostic, developer-friendly Python middleware library that wraps **any** AI agent, LLM chain, or prompt loop and protects it from prompt injection attacks (malicious instructions hidden inside external documents, emails, or web pages). 
+
+When a DANGER threat is detected, GuardRail freezes the pipeline, displays detailed threat explanations, and waits for a human decision (or auto-blocks via timeout) before proceeding.
+# GuardRail — Pluggable Real-Time Prompt Injection Shield for AI Agents
+
 GuardRail is a provider-agnostic, developer-friendly Python middleware library that wraps **any** AI agent, LLM chain, or prompt loop and protects it from prompt injection attacks (malicious instructions hidden inside external documents, emails, or web pages). 
 
 When a DANGER threat is detected, GuardRail freezes the pipeline, displays detailed threat explanations, and waits for a human decision (or auto-blocks via timeout) before proceeding.
@@ -14,75 +22,75 @@ When a DANGER threat is detected, GuardRail freezes the pipeline, displays detai
 - **Multi-Provider Failover Routing**: Seamlessly shifts between configured providers (e.g. falling back to Gemini if OpenAI is down) with complete diagnostics logging on failure.
 - **Graceful Offline Fallback**: Operates locally using regex pattern scanning and fallback heuristics if no API keys are configured, preventing system-level crashes during imports or collection tests.
 - **Self-Evolving Security System**: Periodically analyzes historical SQLite logs of blocked attacks and false alarms to synthesize new injection patterns and dynamically fine-tune drift thresholds.
+## Table of Contents
 
----
+- Quickstart
+- Docker
+- Examples
+- Configuration
+- Evolution & Safety
+- Development & Contributing
+- Testing
+- Deployment
+- License
 
-## Installation & Configuration
+## Quickstart
 
-1. Clone or plug the repository directory directly into your Python codebase.
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Configure your API keys in a `.env` file at the root:
-   ```env
-   # Choose your default check provider: openai, gemini, anthropic, ollama, or custom
-   LLM_PROVIDER=openai
-   
-   # Provide your API Keys (only the active provider is strictly required)
-   OPENAI_API_KEY=your_openai_key
-   GEMINI_API_KEY=your_gemini_key
-   ANTHROPIC_API_KEY=your_anthropic_key
-   
-   # local Ollama URL (optional)
-   OLLAMA_BASE_URL=http://localhost:11434
-   ```
+1. Clone the repo and install requirements:
 
----
-
-## Quick Start Examples
-
-### 1. Wrapping Any AI Agent (Gemini Example)
-You can directly decorate your existing agent function using the `@guardrail.wrap()` decorator:
-
-```python
-import asyncio
-from agent.guardrail_wrapper import guardrail
-
-@guardrail.wrap()
-def my_custom_gemini_agent(task: str, content: str) -> str:
-    # Your custom LLM calling code or LangChain chain here:
-    return "Gemini successfully processed the contract."
-
-async def main():
-    # Automatically runs injection checks, pauses for human decisions on DANGER,
-    # and runs post-execution behavioral drift checks!
-    result = await my_custom_gemini_agent(
-        task="Summarize contract parties",
-        content="Acme Corp and Beta Consulting agreement..."
-    )
-    print(result)
-
-asyncio.run(main())
+```bash
+git clone https://github.com/sriman676/GardRail.git
+cd GardRail
+pip install -r requirements.txt
 ```
 
-### 2. Securing a LangChain / Custom Chain Loop
-For advanced orchestration, pass your run or invocation loop as a callable parameter to `guard.run()`:
+2. Create a `.env` with your chosen provider keys (see configuration section).
 
-```python
-from agent.guardrail_wrapper import GuardRail
+3. Run the API server locally:
 
-guard = GuardRail(decision_mode="api") # Waits for HTTP Dashboard decision
-langchain_agent = MyLangChainAgent()
-
-# Wrap using the run pipeline
-result = await guard.run(
-    task="Summarize document",
-    input_content=malicious_document,
-    agent_callable=lambda t, c: langchain_agent.invoke({"task": t, "content": c})
-)
+```bash
+uvicorn api.server:app --reload --port 8000
 ```
 
+Open the UI at `http://localhost:8000/ui/dashboard.html`.
+
+## Docker
+
+Build and run the container:
+
+```bash
+docker build -t guardrail .
+docker run --rm -p 8000:8000 guardrail
+```
+
+Or use `docker-compose up --build` for bind-mounted development.
+
+## Examples
+See `examples/` for quick integration snippets: `gemini_integration.py`, `langchain_integration.py`, and `custom_callback_integration.py`.
+
+## Configuration
+- Rules: `config/injection_rules.json`
+- Audit DB: SQLite path configured via `settings.GUARDRAIL_DB_PATH` (see `config.py`)
+- Drift threshold and settings: environment variables (see `config.py` defaults)
+
+## Evolution & Safety
+`core/evolution.py` produces `recommendations` and can append vetted regex rules into `config/injection_rules.json`. For safety, we recommend the staged auto-apply workflow described in `IMPROVEMENTS.md`.
+
+## Development & Contributing
+- Run tests: `pytest`
+- Linting: `ruff check .`
+- Add a feature: fork → branch → PR. Include tests and update `IMPROVEMENTS.md` if behavior changes.
+
+## Testing
+- Unit tests: `pytest`
+- Adversarial samples are under `tests/attack_samples/` and are exercised by the test suite.
+
+## Deployment
+- For internal deployments, enable PR Automation or Staged Auto-Apply (see `IMPROVEMENTS.md`).
+- For public SaaS, require admin approvals for any auto-applied evolution changes.
+
+## License
+This project is MIT-licensed. See `LICENSE`.
 ### 3. Hot-Plugging an Enterprise Custom LLM Gateway
 Route all internal GuardRail security checks (scanning, intent parsing, and drift checks) through your own custom API client:
 
