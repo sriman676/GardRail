@@ -9,6 +9,9 @@ from config import settings
 logger = logging.getLogger("guardrail.db")
 
 
+from typing import Any, Optional
+
+
 class AuditLog:
     def __init__(self):
         self.db_path = settings.GUARDRAIL_DB_PATH
@@ -31,7 +34,7 @@ class AuditLog:
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP, status TEXT DEFAULT 'active');
                 CREATE TABLE IF NOT EXISTS scans (
                     id TEXT PRIMARY KEY, session_id TEXT NOT NULL, input_hash TEXT NOT NULL,
-                    threat_level TEXT NOT NULL, scan_result_json TEXT, user_decision TEXT,
+                    threat_level TEXT NOT NULL, scan_result_json TEXT, user_decision TEXT, rule_version TEXT,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (session_id) REFERENCES sessions(id));
                 CREATE TABLE IF NOT EXISTS drift_events (
@@ -63,17 +66,29 @@ class AuditLog:
         except Exception as e:
             logger.error("log_session failed: %s", e)
 
-    def log_scan(self, scan, session_id: str, input_hash: str) -> None:
+    def log_scan(self, scan: Any, session_id: str, input_hash: str) -> None:
         try:
             with self._connect() as conn:
+                # Prepare values with explicit coercion to avoid None type issues
+                scan_id = str(getattr(scan, "scan_id", ""))
+                _tl = getattr(scan, "threat_level", "")
+                # If it's an enum with .value, persist the value (e.g., 'SAFE')
+                try:
+                    threat_level = _tl.value if hasattr(_tl, "value") else str(_tl)
+                except Exception:
+                    threat_level = str(_tl)
+                scan_json = json.dumps(dataclasses.asdict(scan), default=str)
+                rule_version = getattr(scan, "rule_version", "") or ""
+
                 conn.execute(
-                    "INSERT INTO scans (id, session_id, input_hash, threat_level, scan_result_json) VALUES (?,?,?,?,?)",
+                    "INSERT INTO scans (id, session_id, input_hash, threat_level, scan_result_json, rule_version) VALUES (?,?,?,?,?,?)",
                     (
-                        scan.scan_id,
+                        scan_id,
                         session_id,
                         input_hash,
-                        scan.threat_level.value,
-                        json.dumps(dataclasses.asdict(scan), default=str),
+                        threat_level,
+                        scan_json,
+                        rule_version,
                     ),
                 )
         except Exception as e:
@@ -107,7 +122,7 @@ class AuditLog:
         except Exception as e:
             logger.error("log_decision failed: %s", e)
 
-    def get_recent(self, limit: int = 50, threat_level: str = None) -> list:
+    def get_recent(self, limit: int = 50, threat_level: Optional[str] = None) -> list:
         try:
             with self._connect() as conn:
                 if threat_level:

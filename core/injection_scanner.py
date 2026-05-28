@@ -1,9 +1,12 @@
 import logging
 import re
 import uuid
+import json
+import hashlib
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List
+from typing import List, Optional
+from pathlib import Path
 
 from core.llm_client import GenericLLMClient
 
@@ -34,56 +37,12 @@ class ScanResult:
     confidence: float = 0.0
     llm_explanation: str = ""
     original_task: str = ""
+    rule_version: str = ""
 
 
-INJECTION_PATTERNS = [
-    (
-        r"(?i)(ignore|disregard|forget|override)\s+(previous|prior|all|above|earlier)\s+(instruction|prompt|command|directive|rule)",
-        "OVERRIDE_001",
-        "Attempts to override previous instructions",
-    ),
-    (
-        r"(?i)(new\s+instruction|updated\s+instruction|revised\s+instruction)",
-        "OVERRIDE_002",
-        "Introduces new instructions mid-content",
-    ),
-    (
-        r"(?i)(you\s+are\s+now|act\s+as|pretend\s+(you\s+are|to\s+be)|your\s+new\s+role)",
-        "ROLE_001",
-        "Attempts to reassign AI role",
-    ),
-    (
-        r"(?i)(system\s*(override|prompt|instruction|message))",
-        "ROLE_002",
-        "References system-level instructions",
-    ),
-    (
-        r"(?i)(send|email|forward|post|upload|transmit)\s+(to|all|this|the|data|file|content)",
-        "EXFIL_001",
-        "Potential data exfiltration command",
-    ),
-    (r"https?://[^\s]{4,}", "EXFIL_002", "External URL found in content"),
-    (
-        r"(?i)(---+\s*(system|assistant|instruction)\s*---+)",
-        "BOUNDARY_001",
-        "Fake message boundary injection",
-    ),
-    (
-        r"(?i)(\[INST\]|\[SYS\]|<\|system\|>|<s>|<\|im_start\|>)",
-        "BOUNDARY_002",
-        "Model-specific prompt boundary tokens",
-    ),
-    (
-        r"(?i)(you\s+(have|now\s+have)\s+(permission|access|authority|ability)\s+to)",
-        "PRIV_001",
-        "Attempts to escalate AI permissions",
-    ),
-    (
-        r"(?i)(jailbreak|DAN\s+mode|developer\s+mode|unrestricted\s+mode|no\s+restriction)",
-        "PRIV_002",
-        "Known jailbreak terminology",
-    ),
-]
+# Backwards-compatibility: expose INJECTION_PATTERNS symbol for tests and callers.
+# Modules can patch this list in tests; InjectionScanner will load from JSON at runtime.
+INJECTION_PATTERNS: List[tuple[str, str, str]] = []
 
 INJECTION_CLASSIFICATION_PROMPT = """You are a prompt injection detector for an AI security system.
 
@@ -111,8 +70,34 @@ Respond with JSON only. No markdown. No code fences."""
 
 
 class InjectionScanner:
+    RULES_PATH = Path("config/injection_rules.json")
+
     def __init__(self):
         self.client = GenericLLMClient()
+        self._rules: List[tuple[str, str, str]] = []
+        self.rule_version: str = "builtin-none"
+        self._load_rules()
+
+    def _load_rules(self) -> None:
+        try:
+            with open(self.RULES_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            self._rules = [ (item["pattern"], item["pattern_id"], item.get("explanation", "")) for item in data ]
+            raw = json.dumps(data, sort_keys=True)
+            self.rule_version = hashlib.sha256(raw.encode()).hexdigest()[:12]
+            # Export module-level symbol for backwards compatibility (best-effort)
+            try:
+                globals()["INJECTION_PATTERNS"] = list(self._rules)
+            except Exception:
+                pass
+        except Exception:
+            # Keep defaults if file missing or invalid
+            self._rules = []
+            self.rule_version = "builtin-none"
+            try:
+                globals()["INJECTION_PATTERNS"] = list(self._rules)
+            except Exception:
+                pass
 
     def scan(self, content: str, use_llm: bool = True) -> ScanResult:
         content = content[:10000]
@@ -125,6 +110,7 @@ class InjectionScanner:
                 threat_level=ThreatLevel.SAFE,
                 clean_content=content,
                 confidence=0.97,
+                rule_version=self.rule_version,
             )
 
         threat_level = ThreatLevel.SUSPICIOUS
@@ -147,11 +133,7 @@ class InjectionScanner:
                 llm_explanation = llm_result.get("explanation", "")
 
         clean = self._sanitize(content, matched)
-        logger.info(
-            "Scan complete. threat_level=%s patterns_found=%s",
-            threat_level.value,
-            len(matched),
-        )
+        logger.info("Scan complete. threat_level=%s patterns_found=%s", threat_level.value, len(matched))
 
         return ScanResult(
             scan_id=scan_id,
@@ -160,31 +142,36 @@ class InjectionScanner:
             clean_content=clean,
             confidence=confidence,
             llm_explanation=llm_explanation,
+            rule_version=self.rule_version,
         )
 
     def _pattern_scan(self, content: str) -> List[MatchedPattern]:
-        matches = []
-        for pattern, pid, explanation in INJECTION_PATTERNS:
-            for m in re.finditer(pattern, content):
-                matches.append(
-                    MatchedPattern(
-                        pattern_id=pid,
-                        location_start=m.start(),
-                        location_end=m.end(),
-                        matched_text=m.group()[:200],
-                        explanation=explanation,
+        matches: List[MatchedPattern] = []
+        for pattern, pid, explanation in self._rules:
+            try:
+                for m in re.finditer(pattern, content):
+                    matches.append(
+                        MatchedPattern(
+                            pattern_id=pid,
+                            location_start=m.start(),
+                            location_end=m.end(),
+                            matched_text=m.group()[:200],
+                            explanation=explanation,
+                        )
                     )
-                )
+            except re.error:
+                logger.warning("Invalid regex in rule %s - skipping", pid)
+                continue
         return matches
 
-    def _llm_classify(self, text: str) -> dict | None:
+    def _llm_classify(self, text: str) -> Optional[dict]:
         try:
             result = self.client.generate(
                 prompt=INJECTION_CLASSIFICATION_PROMPT.format(text=text),
                 json_format=True,
                 temperature=0,
                 max_tokens=200,
-                fallback_default=None
+                fallback_default=None,
             )
             return result
         except Exception as e:
@@ -194,10 +181,5 @@ class InjectionScanner:
     def _sanitize(self, content: str, matches: List[MatchedPattern]) -> str:
         sanitized = content
         for m in sorted(matches, key=lambda x: x.location_start, reverse=True):
-            sanitized = (
-                sanitized[: m.location_start]
-                + "[CONTENT REMOVED BY GUARDRAIL]"
-                + sanitized[m.location_end :]
-            )
+            sanitized = sanitized[: m.location_start] + "[CONTENT REMOVED BY GUARDRAIL]" + sanitized[m.location_end :]
         return sanitized
-

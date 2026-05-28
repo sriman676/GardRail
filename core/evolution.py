@@ -1,6 +1,7 @@
 import os
 import re
 import logging
+import json
 from typing import Dict, Any, List
 
 from config import settings
@@ -187,65 +188,65 @@ class SystemOptimizer:
 
     def _apply_new_rules(self, rules: List[Dict[str, str]]) -> int:
         """
-        Helper to append evolved injection patterns dynamically.
-        Appends rules to in-memory patterns and writes them to the scanner script.
+        Append evolved injection patterns into `config/injection_rules.json` and refresh
+        the in-memory scanner rules. Returns the number of rules added.
         """
-        scanner_path = "core/injection_scanner.py"
-        if not os.path.exists(scanner_path):
-            return 0
+        rules_path = os.path.join(os.getcwd(), "config", "injection_rules.json")
+        if not os.path.exists(rules_path):
+            # initialize file
+            try:
+                with open(rules_path, "w", encoding="utf-8") as f:
+                    f.write("[]")
+            except Exception as e:
+                logger.error("Could not create rules file: %s", e)
+                return 0
 
         added_count = 0
         try:
-            with open(scanner_path, "r", encoding="utf-8") as f:
-                code = f.read()
+            with open(rules_path, "r", encoding="utf-8") as f:
+                try:
+                    existing = json.load(f)
+                except Exception:
+                    # If the file is not valid JSON (legacy formats), fall back to empty list
+                    existing = []
 
-            # Find the INJECTION_PATTERNS list in the file
-            match = re.search(r"INJECTION_PATTERNS\s*=\s*\[", code)
-            if not match:
-                return 0
-
-            insert_index = match.end()
-            formatted_rules = ""
-
-            from core import injection_scanner
+            # Normalize existing patterns for duplicate checks
+            existing_patterns = { (e.get("pattern"), e.get("pattern_id")) for e in existing }
 
             for r in rules:
                 pat = r.get("pattern")
                 pid = r.get("pattern_id")
                 expl = r.get("explanation")
-                
                 if not pat or not pid:
                     continue
-
-                # Ensure pattern is valid regex before writing it
                 try:
                     re.compile(pat)
                 except re.error:
                     logger.warning("Evolved pattern '%s' is not valid python regex. Skipping.", pat)
                     continue
-
-                # Avoid duplicates
-                if pid in code or pat in code:
+                if (pat, pid) in existing_patterns:
                     continue
-
-                # Append to in-memory module list directly
-                injection_scanner.INJECTION_PATTERNS.append((r"{}".format(pat), pid, expl))
-
-                # Build python code string to inject
-                # Escape backslashes for string literal insertion
-                pat_escaped = pat.replace("\\", "\\\\")
-                formatted_rules += f'\n    (\n        r"{pat_escaped}",\n        "{pid}",\n        "{expl}",\n    ),'
+                existing.append({"pattern": pat, "pattern_id": pid, "explanation": expl})
                 added_count += 1
 
             if added_count > 0:
-                # Write back into the scanner script
-                new_code = code[:insert_index] + formatted_rules + code[insert_index:]
-                with open(scanner_path, "w", encoding="utf-8") as f:
-                    f.write(new_code)
+                with open(rules_path, "w", encoding="utf-8") as f:
+                    json.dump(existing, f, indent=2, sort_keys=False)
+
+                # Reload scanner in-memory rules if module available
+                try:
+                    from core import injection_scanner
+                    # Trigger reload by calling loader
+                    if hasattr(injection_scanner.InjectionScanner, "_load_rules"):
+                        # instantiate temporary scanner to refresh file-based rule version
+                        tmp = injection_scanner.InjectionScanner()
+                        del tmp
+                except Exception as e:
+                    logger.warning("Could not refresh scanner module after adding rules: %s", e)
 
             return added_count
         except Exception as e:
-            logger.error("Failed to write evolved regex rules to scanner file: %s", e)
+            logger.error("Failed to append evolved rules to JSON file: %s", e)
             return 0
 
 
