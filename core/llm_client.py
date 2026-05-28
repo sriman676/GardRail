@@ -1,7 +1,7 @@
 import json
 import logging
 import httpx
-from typing import Optional, Callable, Dict, Any, List
+from typing import Optional, Callable, Dict, Any
 
 from config import settings
 
@@ -76,7 +76,7 @@ class GenericLLMClient:
                 self.diagnostics
             )
             # Display detailed diagnostics to stdout/stderr so developers know why it failed
-            print(f"\n[GuardRail Security Warning] Offline Fallback Triggered!")
+            print("\n[GuardRail Security Warning] Offline Fallback Triggered!")
             for prov, err in self.diagnostics.items():
                 print(f"  - Provider '{prov}' failed: {err}")
             print("Using local pattern scan and safe defaults.\n")

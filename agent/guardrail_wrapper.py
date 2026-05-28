@@ -2,7 +2,7 @@ import hashlib
 import logging
 import inspect
 import functools
-from typing import Optional, Callable, Dict, Any
+from typing import Optional, Callable, Any
 
 from agent.base_agent import BaseAgent
 from core.alert_manager import AlertManager, UserDecision
