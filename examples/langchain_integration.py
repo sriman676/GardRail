@@ -22,7 +22,7 @@ class MyLangChainAgent:
         Simulated LangChain invocation loop.
         """
         task = inputs.get("task")
-        content = inputs.get("content")
+        _content = inputs.get("content")
         
         # In a real LangChain setup:
         # prompt = PromptTemplate.from_template("...")

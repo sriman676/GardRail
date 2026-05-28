@@ -3,13 +3,11 @@ import json
 import logging
 import os
 import sqlite3
+from typing import Any, Optional
 
 from config import settings
 
 logger = logging.getLogger("guardrail.db")
-
-
-from typing import Any, Optional
 
 
 class AuditLog:
