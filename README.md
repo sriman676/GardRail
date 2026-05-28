@@ -112,6 +112,13 @@ Check out the fully functional copy-pasteable files in the `examples/` directory
 - [examples/langchain_integration.py](examples/langchain_integration.py) — Secured LangChain executor wrapping.
 - [examples/custom_callback_integration.py](examples/custom_callback_integration.py) — Hot-plug custom company API routers.
 
+Configuration & Rule Management
+-----------------------------
+- Injection detection rules are now stored in `config/injection_rules.json` (instead of being hardcoded in source). This allows dynamic updates, staged rollouts, and safer `evolution` workflows.
+- The `core/evolution.py` optimizer emits recommendations and can append new rules to `config/injection_rules.json` as part of a staged auto-apply workflow (staging -> test -> promote).
+
+See `IMPROVEMENTS.md` for recommended operational practices (staged auto-apply, PR automation, RBAC, and multi-tenant guidance).
+
 ---
 
 ## Active Threat Shield Behavior
@@ -146,3 +153,23 @@ uvicorn api.server:app --port 8000
 # View Dashboard in browser:
 http://localhost:8000/ui/dashboard.html
 ```
+
+### Docker / Local Container (Quickstart)
+
+Build the Docker image and run the service quickly:
+
+```bash
+docker build -t guardrail .
+docker run --rm -p 8000:8000 guardrail
+```
+
+Or use docker-compose for a bind-mounted development experience (live code updates):
+
+```bash
+docker-compose up --build
+```
+
+Notes:
+- The container mounts the repository into `/app` so code changes are visible without rebuilding when using `docker-compose` with the provided `docker-compose.yml`.
+- Provide any required environment variables (LLM keys, etc.) via a `.env` file or your environment.
+- The API will be reachable at `http://localhost:8000` and the UI at `http://localhost:8000/ui`.
