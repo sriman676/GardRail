@@ -102,6 +102,136 @@ uvicorn api.server:app --reload --port 8000
 
 ---
 
+## Run Locally Without Docker
+
+GuardRail runs anywhere Python 3.11+ is installed. No Docker required!
+
+### Linux/macOS
+
+#### Automated Setup (Recommended)
+```bash
+# One-time setup with automatic environment creation
+source scripts/setup_local.sh
+
+# Start development server with auto-reload
+source scripts/start_dev.sh
+
+# Or start production server (4 workers, 0.0.0.0:8000)
+source scripts/start_prod.sh
+```
+
+#### Manual Setup
+```bash
+# Create virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Set up environment
+cp .env.template .env  # Or create manually
+export $(cat .env | grep -v '#' | xargs)
+
+# Run development server
+python -m uvicorn api.server:app --reload --host 127.0.0.1 --port 8000
+```
+
+### Windows (PowerShell/CMD)
+
+#### Automated Setup (Recommended)
+```cmd
+REM One-time setup with automatic environment creation
+scripts\setup_local.bat
+
+REM Start development server with auto-reload
+scripts\start_dev.bat
+
+REM Or start production server (2 workers, 0.0.0.0:8000)
+scripts\start_prod.bat
+```
+
+#### Manual Setup
+```cmd
+REM Create virtual environment
+python -m venv venv
+venv\Scripts\activate.bat
+
+REM Install dependencies
+pip install -r requirements.txt
+
+REM Set up environment
+copy .env.template .env  (or create manually)
+
+REM Run development server
+python -m uvicorn api.server:app --reload --host 127.0.0.1 --port 8000
+```
+
+### Using Make (All Platforms)
+
+```bash
+# List all available commands
+make help
+
+# First time setup
+make install          # Creates venv and installs dependencies
+
+# Development
+make run-dev          # Dev server with auto-reload on 127.0.0.1:8000
+make test             # Run all tests
+make test-cov         # Tests with HTML coverage report
+make lint             # Check code style
+make format           # Auto-format with Black
+
+# Production
+make run              # Production server on 0.0.0.0:8000 (4 workers)
+
+# Utilities
+make clean            # Remove __pycache__, .pyc, .coverage, htmlcov
+make demo             # Run demo scenarios
+make type-check       # Run mypy type checking
+```
+
+### Environment Variables
+
+Create `.env` in the project root:
+
+```bash
+# LLM Provider (required)
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4o
+
+# Alternative providers:
+# LLM_PROVIDER=gemini
+# GEMINI_API_KEY=...
+
+# Server configuration (optional)
+GUARDRAIL_HOST=127.0.0.1
+GUARDRAIL_PORT=8000
+LOG_LEVEL=INFO
+
+# Authentication (optional)
+ADMIN_API_KEYS=your-admin-key
+JWT_SECRET_KEY=your-secret
+JWT_EXPIRATION_HOURS=24
+```
+
+### Verify Installation
+
+```bash
+# Check health endpoint
+curl http://localhost:8000/health
+
+# Open Swagger UI
+open http://localhost:8000/docs
+
+# Run tests
+pytest tests/ -v
+```
+
+---
+
 ## API Documentation
 
 ### Interactive Swagger UI
