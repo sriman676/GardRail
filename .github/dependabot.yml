@@ -1,0 +1,14 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    # Optionally ignore specific deps in the future
+    # ignore:
+    #   - dependency-name: "some-package"
+    #     versions:
+    #       - "< 2.0.0"
