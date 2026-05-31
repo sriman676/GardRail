@@ -4,7 +4,7 @@ import time
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import Response
+from fastapi.responses import Response, RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from api.routes import router
@@ -64,6 +64,13 @@ def metrics():
         return Response(data, media_type=CONTENT_TYPE_LATEST)
     except Exception:
         return Response(b"", media_type="text/plain")
+
+
+@app.get("/")
+def root():
+    """Redirect root path to Swagger UI documentation."""
+    return RedirectResponse(url="/docs", status_code=301)
+
 
 if __name__ == "__main__":
     import uvicorn
