@@ -123,6 +123,9 @@ class GenericLLMClient:
             elif provider == "anthropic":
                 return self._call_anthropic(model, prompt, system_prompt, json_format, temperature, max_tokens)
 
+            elif provider == "nvidia":
+                return self._call_nvidia(model, prompt, system_prompt, json_format, temperature, max_tokens)
+
             elif provider == "ollama":
                 return self._call_ollama(model, prompt, system_prompt, json_format, temperature, max_tokens)
 
@@ -145,13 +148,15 @@ class GenericLLMClient:
     ) -> Optional[str]:
         """Iterates through all alternative providers that have credentials set."""
         # Define candidate providers in order of preference
-        candidates = ["openai", "gemini", "anthropic", "ollama"]
+        candidates = ["nvidia", "openai", "gemini", "anthropic", "ollama"]
         
         # Exclude the provider we already tried and failed
         candidates = [c for c in candidates if c != self.provider.lower()]
 
         for candidate in candidates:
             # Check if key/URL is configured before attempting
+            if candidate == "nvidia" and not settings.NVIDIA_API_KEY:
+                continue
             if candidate == "openai" and not settings.OPENAI_API_KEY:
                 continue
             if candidate == "gemini" and not settings.GEMINI_API_KEY:
@@ -348,6 +353,76 @@ class GenericLLMClient:
             resp.raise_for_status()
             data = resp.json()
             return data["content"][0]["text"]
+
+    # --- NVIDIA Provider Implementation ---
+    def _call_nvidia(
+        self,
+        model: Optional[str],
+        prompt: str,
+        system_prompt: Optional[str],
+        json_format: bool,
+        temperature: float,
+        max_tokens: int
+    ) -> str:
+        api_key = settings.NVIDIA_API_KEY
+        if not api_key:
+            raise ValueError("NVIDIA_API_KEY is not set.")
+
+        selected_model = model or settings.NVIDIA_MODEL or "nvidia/llama-2-70b-chat"
+
+        # NVIDIA API is OpenAI-compatible, so use OpenAI SDK with custom base URL
+        try:
+            from openai import OpenAI
+            client = OpenAI(
+                api_key=api_key,
+                base_url="https://integrate.api.nvidia.com/v1",
+                http_client=httpx.Client()
+            )
+            
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
+
+            extra_args = {}
+            if json_format:
+                extra_args["response_format"] = {"type": "json_object"}
+
+            response = client.chat.completions.create(
+                model=selected_model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=30.0,
+                **extra_args
+            )
+            return response.choices[0].message.content
+        except ImportError:
+            # Direct HTTP REST fallback using httpx
+            url = "https://integrate.api.nvidia.com/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
+
+            body = {
+                "model": selected_model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens
+            }
+            if json_format:
+                body["response_format"] = {"type": "json_object"}
+
+            resp = httpx.post(url, headers=headers, json=body, timeout=30.0)
+            resp.raise_for_status()
+            data = resp.json()
+            return data["choices"][0]["message"]["content"]
 
     # --- Ollama Local Provider Implementation ---
     def _call_ollama(

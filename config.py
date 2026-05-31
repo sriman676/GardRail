@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     # LLM Settings
-    LLM_PROVIDER: str = "openai"  # openai, gemini, anthropic, ollama, custom
+    LLM_PROVIDER: str = "openai"  # openai, gemini, anthropic, nvidia, ollama, custom
     LLM_MODEL: Optional[str] = None  # defaults to provider's smart default if None
 
     OPENAI_API_KEY: Optional[str] = None
@@ -12,6 +12,8 @@ class Settings(BaseSettings):
 
     GEMINI_API_KEY: Optional[str] = None
     ANTHROPIC_API_KEY: Optional[str] = None
+    NVIDIA_API_KEY: Optional[str] = None
+    NVIDIA_MODEL: str = "nvidia/llama-2-70b-chat"
     OLLAMA_BASE_URL: str = "http://localhost:11434"
 
     # GuardRail Core Settings

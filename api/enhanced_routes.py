@@ -251,16 +251,25 @@ async def health_detailed() -> dict:
             db_ok = False
             db_error = str(e)
         
-        # OpenAI check (cached)
-        openai_ok = True
-        openai_error = None
+        # LLM Provider check (works with all providers: OpenAI, NVIDIA, Gemini, etc.)
+        llm_ok = True
+        llm_error = None
         try:
-            from core.openai_client import create_openai_client
-            client = create_openai_client()
-            client.models.list()
+            from core.llm_client import GenericLLMClient
+            client = GenericLLMClient()
+            # Attempt a simple test call with very short timeout
+            test_prompt = "Respond with 'ok'."
+            response = client.generate(
+                prompt=test_prompt,
+                max_tokens=10,
+                temperature=0.0
+            )
+            if response is None or response == "":
+                llm_ok = False
+                llm_error = "LLM returned empty response"
         except Exception as e:
-            openai_ok = False
-            openai_error = str(e)
+            llm_ok = False
+            llm_error = str(e)
         
         # Load rules
         try:
@@ -271,7 +280,7 @@ async def health_detailed() -> dict:
             active_rules = 0
             staged_rules = 0
         
-        overall_status = "healthy" if (db_ok and openai_ok) else "degraded"
+        overall_status = "healthy" if (db_ok and llm_ok) else "degraded"
         
         return {
             "status": overall_status,
@@ -282,9 +291,9 @@ async def health_detailed() -> dict:
                     "error": db_error
                 },
                 "llm_provider": {
-                    "status": "ok" if openai_ok else "error",
+                    "status": "ok" if llm_ok else "error",
                     "provider": settings.LLM_PROVIDER,
-                    "error": openai_error
+                    "error": llm_error
                 },
                 "rules": {
                     "active_count": active_rules,
