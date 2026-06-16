@@ -1,52 +1,7 @@
 [
   {
-    "pattern": "(?i)(ignore|disregard|forget|override)\\s+(previous|prior|all|above|earlier)\\s+(instruction|prompt|command|directive|rule)",
-    "pattern_id": "OVERRIDE_001",
-    "explanation": "Attempts to override previous instructions"
-  },
-  {
-    "pattern": "(?i)(new\\s+instruction|updated\\s+instruction|revised\\s+instruction)",
-    "pattern_id": "OVERRIDE_002",
-    "explanation": "Introduces new instructions mid-content"
-  },
-  {
-    "pattern": "(?i)(you\\s+are\\s+now|act\\s+as|pretend\\s+(you\\s+are|to\\s+be)|your\\s+new\\s+role)",
-    "pattern_id": "ROLE_001",
-    "explanation": "Attempts to reassign AI role"
-  },
-  {
-    "pattern": "(?i)(system\\s*(override|prompt|instruction|message))",
-    "pattern_id": "ROLE_002",
-    "explanation": "References system-level instructions"
-  },
-  {
-    "pattern": "(?i)(send|email|forward|post|upload|transmit)\\s+(to|all|this|the|data|file|content)",
-    "pattern_id": "EXFIL_001",
-    "explanation": "Potential data exfiltration command"
-  },
-  {
-    "pattern": "https?://[^\\s]{4,}",
-    "pattern_id": "EXFIL_002",
-    "explanation": "External URL found in content"
-  },
-  {
-    "pattern": "(?i)(---+\\s*(system|assistant|instruction)\\s*---+)",
-    "pattern_id": "BOUNDARY_001",
-    "explanation": "Fake message boundary injection"
-  },
-  {
-    "pattern": "(?i)(\\[INST\\]|\\[SYS\\]|<\\|system\\|>|<s>|<\\|im_start\\|>)",
-    "pattern_id": "BOUNDARY_002",
-    "explanation": "Model-specific prompt boundary tokens"
-  },
-  {
-    "pattern": "(?i)(you\\s+(have|now\\s+have)\\s+(permission|access|authority|ability)\\s+to)",
-    "pattern_id": "PRIV_001",
-    "explanation": "Attempts to escalate AI permissions"
-  },
-  {
-    "pattern": "(?i)(jailbreak|DAN\\s+mode|developer\\s+mode|unrestricted\\s+mode|no\\s+restriction)",
-    "pattern_id": "PRIV_002",
-    "explanation": "Known jailbreak terminology"
+    "pattern": "override instructions",
+    "pattern_id": "EVOLVED_001",
+    "explanation": "test"
   }
 ]
